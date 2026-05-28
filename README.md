@@ -53,6 +53,28 @@ Server runs on `http://0.0.0.0:3000`
 
 > Change the admin password immediately after first login via Settings → Users.
 
+### Deploy Backend on Render (BE only)
+
+This repo includes `render.yaml` for backend deployment.
+
+1. Push latest code to GitHub.
+2. In Render, click **New +** → **Blueprint**.
+3. Select this repository and deploy.
+4. In Render service env vars, set:
+   - `JWT_SECRET` (long random string)
+   - `DATABASE_URL` (from your Render Postgres instance)
+5. Open the Render shell for the backend service and run migration once:
+
+```bash
+npm run migrate
+```
+
+After deployment, your backend URL will look like:
+
+```
+https://joebill-backend.onrender.com
+```
+
 ---
 
 ## Flutter App Setup

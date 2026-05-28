@@ -87,7 +87,8 @@ class _MenuItemsTab extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(kSpaceMD, kSpaceMD, kSpaceMD, kSpaceSM),
+                      padding: const EdgeInsets.fromLTRB(
+                          kSpaceMD, kSpaceMD, kSpaceMD, kSpaceSM),
                       child: Text(
                         categoryLabel(cat).toUpperCase(),
                         style: const TextStyle(
@@ -101,11 +102,14 @@ class _MenuItemsTab extends ConsumerWidget {
                     ...catItems.map((item) => _MenuItemTile(
                           item: item,
                           isAdmin: isAdmin,
-                          onEdit: isAdmin ? () => _showEditDialog(context, ref, item) : null,
+                          onEdit: isAdmin
+                              ? () => _showEditDialog(context, ref, item)
+                              : null,
                           onToggle: isAdmin
                               ? () => ref
                                   .read(menuItemsProvider.notifier)
-                                  .updateItem(item.id, {'is_active': !item.isActive})
+                                  .updateItem(
+                                      item.id, {'is_active': !item.isActive})
                               : null,
                         )),
                   ],
@@ -166,11 +170,16 @@ class _MenuItemTile extends StatelessWidget {
 
   Color _categoryColor(String cat) {
     switch (cat) {
-      case 'beverage': return kBlue;
-      case 'drink': return kAmber;
-      case 'food': return kGreen;
-      case 'game': return kAccent;
-      default: return kTextMuted;
+      case 'beverage':
+        return kBlue;
+      case 'drink':
+        return kAmber;
+      case 'food':
+        return kGreen;
+      case 'game':
+        return kAccent;
+      default:
+        return kTextMuted;
     }
   }
 
@@ -181,7 +190,8 @@ class _MenuItemTile extends StatelessWidget {
       opacity: item.isActive ? 1.0 : 0.4,
       child: Container(
         margin: const EdgeInsets.fromLTRB(kSpaceMD, 0, kSpaceMD, kSpaceSM),
-        padding: const EdgeInsets.symmetric(horizontal: kSpaceMD, vertical: kSpaceSM + 4),
+        padding: const EdgeInsets.symmetric(
+            horizontal: kSpaceMD, vertical: kSpaceSM + 4),
         decoration: BoxDecoration(
           color: kCard,
           borderRadius: BorderRadius.circular(kRadiusMD),
@@ -199,7 +209,8 @@ class _MenuItemTile extends StatelessWidget {
               child: Center(
                 child: Text(
                   item.name.substring(0, 1).toUpperCase(),
-                  style: TextStyle(color: color, fontWeight: FontWeight.bold, fontSize: 14),
+                  style: TextStyle(
+                      color: color, fontWeight: FontWeight.bold, fontSize: 14),
                 ),
               ),
             ),
@@ -209,7 +220,8 @@ class _MenuItemTile extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(item.name,
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 14)),
                   const SizedBox(height: 2),
                   Text(
                     item.isPerMinute
@@ -230,7 +242,8 @@ class _MenuItemTile extends StatelessWidget {
                     color: kCardAlt,
                     borderRadius: BorderRadius.circular(kRadiusSM),
                   ),
-                  child: const Icon(Icons.edit_outlined, size: 16, color: kTextMuted),
+                  child: const Icon(Icons.edit_outlined,
+                      size: 16, color: kTextMuted),
                 ),
               ),
               const SizedBox(width: kSpaceSM),
@@ -319,7 +332,8 @@ class _MenuItemDialogState extends State<_MenuItemDialog> {
             TextField(
               controller: _priceCtrl,
               decoration: const InputDecoration(labelText: 'Price (₹)'),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType:
+                  const TextInputType.numberWithOptions(decimal: true),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
@@ -347,7 +361,8 @@ class _MenuItemDialogState extends State<_MenuItemDialog> {
               dropdownColor: kCard,
               items: const [
                 DropdownMenuItem(value: 'per_item', child: Text('Per Item')),
-                DropdownMenuItem(value: 'per_minute', child: Text('Per Minute')),
+                DropdownMenuItem(
+                    value: 'per_minute', child: Text('Per Minute')),
               ],
               onChanged: (v) => setState(() => _unit = v ?? _unit),
             ),
@@ -355,14 +370,17 @@ class _MenuItemDialogState extends State<_MenuItemDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel')),
         ElevatedButton(
           onPressed: _saving ? null : _save,
           child: _saving
               ? const SizedBox(
                   height: 18,
                   width: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white),
                 )
               : Text(widget.item == null ? 'Add' : 'Save'),
         ),
@@ -444,7 +462,8 @@ class _UsersTabState extends ConsumerState<_UsersTab> {
               opacity: isActive ? 1.0 : 0.45,
               child: Container(
                 margin: const EdgeInsets.only(bottom: kSpaceSM),
-                padding: const EdgeInsets.symmetric(horizontal: kSpaceMD, vertical: kSpaceSM + 4),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: kSpaceMD, vertical: kSpaceSM + 4),
                 decoration: BoxDecoration(
                   color: kCard,
                   borderRadius: BorderRadius.circular(kRadiusMD),
@@ -454,7 +473,8 @@ class _UsersTabState extends ConsumerState<_UsersTab> {
                   children: [
                     CircleAvatar(
                       radius: 20,
-                      backgroundColor: isAdmin ? kAccent.withValues(alpha: 0.15) : kCardAlt,
+                      backgroundColor:
+                          isAdmin ? kAccent.withValues(alpha: 0.15) : kCardAlt,
                       child: Text(
                         (user['name'] as String).substring(0, 1).toUpperCase(),
                         style: TextStyle(
@@ -470,17 +490,22 @@ class _UsersTabState extends ConsumerState<_UsersTab> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(user['name'],
-                              style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600, fontSize: 14)),
                           const SizedBox(height: 2),
                           Row(
                             children: [
                               Text('@${user['username']}',
-                                  style: const TextStyle(color: kTextMuted, fontSize: 12)),
+                                  style: const TextStyle(
+                                      color: kTextMuted, fontSize: 12)),
                               const SizedBox(width: kSpaceXS),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 1),
                                 decoration: BoxDecoration(
-                                  color: isAdmin ? kAccent.withValues(alpha: 0.12) : kCardAlt,
+                                  color: isAdmin
+                                      ? kAccent.withValues(alpha: 0.12)
+                                      : kCardAlt,
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: Text(
@@ -507,7 +532,8 @@ class _UsersTabState extends ConsumerState<_UsersTab> {
                             color: kCardAlt,
                             borderRadius: BorderRadius.circular(kRadiusSM),
                           ),
-                          child: const Icon(Icons.edit_outlined, size: 16, color: kTextMuted),
+                          child: const Icon(Icons.edit_outlined,
+                              size: 16, color: kTextMuted),
                         ),
                       ),
                   ],
@@ -616,7 +642,9 @@ class _UserDialogState extends State<_UserDialog> {
             TextField(
               controller: _passCtrl,
               decoration: InputDecoration(
-                labelText: widget.user == null ? 'Password' : 'New Password (leave blank to keep)',
+                labelText: widget.user == null
+                    ? 'Password'
+                    : 'New Password (leave blank to keep)',
               ),
               obscureText: true,
             ),
@@ -635,14 +663,17 @@ class _UserDialogState extends State<_UserDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel')),
         ElevatedButton(
           onPressed: _saving ? null : _save,
           child: _saving
               ? const SizedBox(
                   height: 18,
                   width: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white),
                 )
               : Text(widget.user == null ? 'Add' : 'Save'),
         ),
