@@ -55,6 +55,18 @@ class MenuItemsNotifier extends StateNotifier<AsyncValue<List<MenuItem>>> {
     }
   }
 
+  Future<Map<String, dynamic>> importItems(
+    List<Map<String, dynamic>> items, {
+    bool upsert = true,
+  }) async {
+    final data = await ApiService.instance.post('/menu-items/import', {
+      'items': items,
+      'upsert': upsert,
+    }) as Map<String, dynamic>;
+    await load(allItems: true);
+    return data;
+  }
+
   Future<void> updateItem(int id, Map<String, dynamic> body) async {
     final items = state.valueOrNull;
     if (items == null) return;

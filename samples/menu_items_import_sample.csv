@@ -1,0 +1,17 @@
+name,category,price,unit,track_stock,stock_quantity,low_stock_threshold,is_active
+Coca Cola,beverage,60,per_item,true,50,10,true
+Pepsi,beverage,60,per_item,true,50,10,true
+Sprite,beverage,60,per_item,true,40,10,true
+Water Bottle,beverage,20,per_item,true,100,20,true
+Red Bull,beverage,150,per_item,true,24,6,true
+Beer (Kingfisher),drink,120,per_item,true,48,12,true
+Beer (Budweiser),drink,150,per_item,true,36,12,true
+Whiskey (30ml),drink,80,per_item,false,,,true
+Sandwich,food,80,per_item,true,30,8,true
+Burger,food,120,per_item,true,25,8,true
+French Fries,food,80,per_item,true,40,10,true
+Nachos,food,100,per_item,true,20,5,true
+Pool,game,2.50,per_minute,false,,,true
+Snooker,game,3.30,per_minute,false,,,true
+Darts,game,1.50,per_minute,false,,,true
+Foosball,game,1.00,per_minute,false,,,true

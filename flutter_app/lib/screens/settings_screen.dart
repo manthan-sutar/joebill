@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/auth_provider.dart';
@@ -6,6 +7,7 @@ import '../models/menu_item.dart';
 import '../services/api_service.dart';
 import '../utils/theme.dart';
 import '../utils/formatters.dart';
+import '../utils/menu_import.dart';
 import 'inventory_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
@@ -132,16 +134,123 @@ class _MenuItemsTab extends ConsumerWidget {
               Positioned(
                 bottom: 16,
                 right: 16,
-                child: FloatingActionButton.extended(
-                  onPressed: () => _showAddDialog(context, ref),
-                  icon: const Icon(Icons.add),
-                  label: const Text('Add Item'),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    FloatingActionButton.extended(
+                      heroTag: 'import_menu',
+                      onPressed: () => _importFromExcel(context, ref),
+                      icon: const Icon(Icons.upload_file),
+                      label: const Text('Import Excel'),
+                    ),
+                    const SizedBox(height: 10),
+                    FloatingActionButton.extended(
+                      heroTag: 'add_menu',
+                      onPressed: () => _showAddDialog(context, ref),
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add Item'),
+                    ),
+                  ],
                 ),
               ),
           ],
         );
       },
     );
+  }
+
+  Future<void> _importFromExcel(BuildContext context, WidgetRef ref) async {
+    final picked = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['xlsx', 'xls', 'csv'],
+      withData: true,
+    );
+    if (picked == null || picked.files.isEmpty) return;
+    final file = picked.files.first;
+    if (file.bytes == null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not read file')),
+        );
+      }
+      return;
+    }
+
+    List<MenuImportRow> rows;
+    try {
+      rows = parseMenuImportBytes(file.bytes!, file.name);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: kAccent),
+        );
+      }
+      return;
+    }
+
+    if (rows.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No data rows found')),
+        );
+      }
+      return;
+    }
+
+    var upsert = true;
+    if (!context.mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => AlertDialog(
+          backgroundColor: kSurface,
+          title: const Text('Import menu items'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('${rows.length} rows from ${file.name}'),
+              const SizedBox(height: 12),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Update existing (same name + category)'),
+                value: upsert,
+                onChanged: (v) => setState(() => upsert = v ?? true),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Import')),
+          ],
+        ),
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      final result = await ref.read(menuItemsProvider.notifier).importItems(
+            rows.map((r) => r.data).toList(),
+            upsert: upsert,
+          );
+      final created = result['created'] ?? 0;
+      final updated = result['updated'] ?? 0;
+      final errors = (result['errors'] as List?)?.length ?? 0;
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Imported: $created new, $updated updated${errors > 0 ? ', $errors errors' : ''}'),
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: kAccent),
+        );
+      }
+    }
   }
 
   void _showAddDialog(BuildContext context, WidgetRef ref) {
