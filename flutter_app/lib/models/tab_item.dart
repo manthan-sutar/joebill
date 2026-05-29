@@ -26,4 +26,23 @@ class TabItem {
         unitPrice: double.parse(json['unit_price'].toString()),
         subtotal: double.parse(json['subtotal'].toString()),
       );
+
+  TabItem copyWith({
+    int? id,
+    int? tabId,
+    int? menuItemId,
+    String? menuItemName,
+    int? quantity,
+    double? unitPrice,
+    double? subtotal,
+  }) =>
+      TabItem(
+        id: id ?? this.id,
+        tabId: tabId ?? this.tabId,
+        menuItemId: menuItemId ?? this.menuItemId,
+        menuItemName: menuItemName ?? this.menuItemName,
+        quantity: quantity ?? this.quantity,
+        unitPrice: unitPrice ?? this.unitPrice,
+        subtotal: subtotal ?? this.subtotal,
+      );
 }

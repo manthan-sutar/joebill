@@ -27,7 +27,7 @@ router.post('/login', async (req, res) => {
       { expiresIn: '12h' }
     );
 
-    res.json({ token, user: { id: user.id, name: user.name, username: user.username, role: user.role } });
+    res.json({ token, user: { id: user.id, name: user.name, username: user.username, role: user.role, must_change_password: user.must_change_password ?? false } });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -35,7 +35,48 @@ router.post('/login', async (req, res) => {
 
 // GET /auth/me
 router.get('/me', authenticate, async (req, res) => {
-  res.json({ user: req.user });
+  try {
+    const { rows } = await pool.query(
+      'SELECT id, name, username, role, must_change_password FROM users WHERE id = $1',
+      [req.user.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'User not found' });
+    res.json({ user: rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /auth/change-password
+router.patch('/change-password', authenticate, async (req, res) => {
+  const { current_password, new_password } = req.body;
+  if (!current_password || !new_password)
+    return res.status(400).json({ error: 'current_password and new_password required' });
+  if (new_password.length < 6)
+    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+
+  try {
+    const { rows } = await pool.query('SELECT * FROM users WHERE id = $1', [req.user.id]);
+    const user = rows[0];
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    const valid = await bcrypt.compare(current_password, user.password_hash);
+    if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
+
+    const hash = await bcrypt.hash(new_password, 10);
+    await pool.query(
+      'UPDATE users SET password_hash = $1, must_change_password = FALSE WHERE id = $2',
+      [hash, req.user.id]
+    );
+
+    const { rows: updated } = await pool.query(
+      'SELECT id, name, username, role, must_change_password FROM users WHERE id = $1',
+      [req.user.id]
+    );
+    res.json({ user: updated[0] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // GET /auth/users (admin only)

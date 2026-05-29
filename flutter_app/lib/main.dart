@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'providers/auth_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/main_shell.dart';
+import 'screens/change_password_screen.dart';
 import 'utils/theme.dart';
 
 void main() {
@@ -50,7 +51,9 @@ class _JoeBillAppState extends ConsumerState<JoeBillApp> {
               body: Center(child: CircularProgressIndicator()),
             )
           : auth.isLoggedIn
-              ? const MainShell()
+              ? (auth.user!.mustChangePassword
+                  ? const ChangePasswordScreen()
+                  : const MainShell())
               : const LoginScreen(),
     );
   }

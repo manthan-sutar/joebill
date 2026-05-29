@@ -13,7 +13,7 @@ class ApiException implements Exception {
 class ApiService {
   static const String _baseUrlKey = 'base_url';
   static const String _tokenKey = 'auth_token';
-  static const String _defaultBaseUrl = 'http://10.0.2.2:3000';
+  static const String _defaultBaseUrl = 'https://joebill.onrender.com';
 
   static ApiService? _instance;
   static ApiService get instance => _instance ??= ApiService._();

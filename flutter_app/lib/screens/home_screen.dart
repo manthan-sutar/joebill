@@ -8,7 +8,10 @@ import '../models/customer.dart';
 import '../services/api_service.dart';
 import '../utils/theme.dart';
 import '../utils/formatters.dart';
+import '../utils/confirm_dialog.dart';
+import '../utils/validators.dart';
 import 'tab_detail_screen.dart';
+import 'eod_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -19,6 +22,8 @@ class HomeScreen extends ConsumerStatefulWidget {
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   Timer? _refreshTimer;
+  final _searchCtrl = TextEditingController();
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -34,7 +39,32 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _searchCtrl.dispose();
     super.dispose();
+  }
+
+  List<BillTab> _filterTabs(List<BillTab> tabs) {
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) return _sortTabs(tabs);
+    return _sortTabs(tabs.where((t) {
+      if (t.customerName.toLowerCase().contains(q)) return true;
+      final phone = t.customerPhone;
+      return phone != null && phone.contains(q);
+    }).toList());
+  }
+
+  List<BillTab> _sortTabs(List<BillTab> tabs) {
+    final sorted = [...tabs];
+    sorted.sort((a, b) {
+      final aOld = DateTime.now().difference(a.openedAt).inHours >= 3;
+      final bOld = DateTime.now().difference(b.openedAt).inHours >= 3;
+      if (aOld != bOld) return aOld ? -1 : 1;
+      final aLive = (a.activeGames ?? 0) > 0;
+      final bLive = (b.activeGames ?? 0) > 0;
+      if (aLive != bLive) return aLive ? -1 : 1;
+      return b.openedAt.compareTo(a.openedAt);
+    });
+    return sorted;
   }
 
   Future<void> _newTab() async {
@@ -48,6 +78,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       builder: (_) => const _NewTabSheet(),
     );
     if (result == null) return;
+
+    final name = result['name'] as String;
+    final existing = ref.read(tabsProvider.notifier).findOpenTabByName(name);
+    if (existing != null && mounted) {
+      final openExisting = await confirmAction(
+        context,
+        title: 'Tab already open',
+        message: '"$name" already has an open tab. Open it instead of creating a duplicate?',
+        confirmLabel: 'Open Existing',
+      );
+      if (openExisting) {
+        if (!mounted) return;
+        Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => TabDetailScreen(tabId: existing.id)),
+        ).then((_) => ref.read(tabsProvider.notifier).refresh());
+        return;
+      }
+    }
 
     try {
       final tab = await ref.read(tabsProvider.notifier).createTab(
@@ -91,6 +140,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.fact_check_outlined),
+            tooltip: 'End of Day',
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const EodScreen()),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh_rounded),
             tooltip: 'Refresh',
@@ -157,6 +214,30 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ),
 
+          Padding(
+            padding: const EdgeInsets.fromLTRB(kSpaceMD, kSpaceSM + 4, kSpaceMD, kSpaceSM),
+            child: TextField(
+              controller: _searchCtrl,
+              decoration: InputDecoration(
+                hintText: 'Search open tabs...',
+                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear_rounded, size: 18),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
+                    : null,
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: kSpaceSM + 2),
+              ),
+              textCapitalization: TextCapitalization.words,
+              onChanged: (v) => setState(() => _searchQuery = v),
+            ),
+          ),
+
           Expanded(
             child: tabsAsync.when(
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -164,31 +245,48 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 message: e.toString(),
                 onRetry: () => ref.read(tabsProvider.notifier).load(),
               ),
-              data: (tabs) => tabs.isEmpty
-                  ? _EmptyState(onNewTab: _newTab)
-                  : RefreshIndicator(
-                      color: kAccent,
-                      onRefresh: () => ref.read(tabsProvider.notifier).refresh(),
-                      child: GridView.builder(
-                        padding: const EdgeInsets.all(kSpaceMD),
-                        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 260,
-                          mainAxisExtent: 186,
-                          crossAxisSpacing: kSpaceSM + 4,
-                          mainAxisSpacing: kSpaceSM + 4,
+              data: (tabs) {
+                if (tabs.isEmpty) return _EmptyState(onNewTab: _newTab);
+                final filtered = _filterTabs(tabs);
+                if (filtered.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.search_off_rounded, size: 40, color: kTextMuted),
+                        const SizedBox(height: kSpaceSM),
+                        Text(
+                          'No tabs match "$_searchQuery"',
+                          style: const TextStyle(color: kTextMuted),
                         ),
-                        itemCount: tabs.length,
-                        itemBuilder: (_, i) => _TabCard(
-                          tab: tabs[i],
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => TabDetailScreen(tabId: tabs[i].id),
-                            ),
-                          ).then((_) => ref.read(tabsProvider.notifier).refresh()),
-                        ),
-                      ),
+                      ],
                     ),
+                  );
+                }
+                return RefreshIndicator(
+                  color: kAccent,
+                  onRefresh: () => ref.read(tabsProvider.notifier).refresh(),
+                  child: GridView.builder(
+                    padding: const EdgeInsets.all(kSpaceMD),
+                    gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: 260,
+                      mainAxisExtent: 186,
+                      crossAxisSpacing: kSpaceSM + 4,
+                      mainAxisSpacing: kSpaceSM + 4,
+                    ),
+                    itemCount: filtered.length,
+                    itemBuilder: (_, i) => _TabCard(
+                      tab: filtered[i],
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => TabDetailScreen(tabId: filtered[i].id),
+                        ),
+                      ).then((_) => ref.read(tabsProvider.notifier).refresh()),
+                    ),
+                  ),
+                );
+              },
             ),
           ),
         ],
@@ -290,6 +388,13 @@ class _NewTabSheetState extends State<_NewTabSheet> {
   void _confirm() {
     final name = _nameCtrl.text.trim();
     if (name.isEmpty) return;
+    final phoneErr = phoneValidationMessage(_phoneCtrl.text.trim());
+    if (phoneErr != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(phoneErr), backgroundColor: kAccent),
+      );
+      return;
+    }
     Navigator.pop(context, {
       'name': name,
       'customer_id': _selectedCustomer?.id,
@@ -512,15 +617,18 @@ class _TabCard extends StatefulWidget {
   State<_TabCard> createState() => _TabCardState();
 }
 
-class _TabCardState extends State<_TabCard> {
+class _TabCardState extends State<_TabCard> with SingleTickerProviderStateMixin {
   Timer? _timer;
   double _liveCost = 0;
+  late AnimationController _pulseCtrl;
 
   @override
   void initState() {
     super.initState();
+    _pulseCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))
+      ..repeat(reverse: true);
     _liveCost = widget.tab.runningGamesCost;
-    if (widget.tab.gameSessions.any((g) => g.isRunning)) {
+    if (widget.tab.activeGames != null && widget.tab.activeGames! > 0) {
       _timer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() => _liveCost = widget.tab.runningGamesCost);
       });
@@ -530,6 +638,7 @@ class _TabCardState extends State<_TabCard> {
   @override
   void dispose() {
     _timer?.cancel();
+    _pulseCtrl.dispose();
     super.dispose();
   }
 
@@ -585,7 +694,9 @@ class _TabCardState extends State<_TabCard> {
                           ),
                         ),
                         if (hasRunningGame)
-                          Container(
+                          FadeTransition(
+                            opacity: Tween(begin: 0.55, end: 1.0).animate(_pulseCtrl),
+                            child: Container(
                             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                             decoration: BoxDecoration(
                               color: kGreen.withValues(alpha: 0.15),
@@ -603,6 +714,7 @@ class _TabCardState extends State<_TabCard> {
                                     style: TextStyle(color: kGreen, fontSize: 9, fontWeight: FontWeight.bold, letterSpacing: 0.5)),
                               ],
                             ),
+                          ),
                           ),
                       ],
                     ),

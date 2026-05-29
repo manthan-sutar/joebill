@@ -10,10 +10,12 @@ import '../models/bill_tab.dart';
 import '../services/pdf_service.dart';
 import '../utils/theme.dart';
 import '../utils/formatters.dart';
+import '../utils/confirm_dialog.dart';
 
 class SettleScreen extends ConsumerStatefulWidget {
   final int tabId;
-  const SettleScreen({super.key, required this.tabId});
+  final bool hasRunningGames;
+  const SettleScreen({super.key, required this.tabId, this.hasRunningGames = false});
 
   @override
   ConsumerState<SettleScreen> createState() => _SettleScreenState();
@@ -24,11 +26,42 @@ class _SettleScreenState extends ConsumerState<SettleScreen> {
   bool _settling = false;
   BillTab? _settledTab;
 
-  Future<void> _settle() async {
+  Future<void> _settle(BillTab tab) async {
+    final total = tab.subtotal + tab.runningGamesCost;
+
+    if (total >= 500) {
+      final ok = await confirmAction(
+        context,
+        title: 'Confirm settlement',
+        message: 'Settle ${formatCurrency(total)} for ${tab.customerName} via ${_paymentMethod.toUpperCase()}?',
+        confirmLabel: 'Settle',
+      );
+      if (!ok) return;
+    }
+
     setState(() => _settling = true);
     try {
-      final tab = await ref.read(tabDetailProvider(widget.tabId).notifier).settle(_paymentMethod);
-      setState(() => _settledTab = tab);
+      var confirmRunning = widget.hasRunningGames;
+      try {
+        final settled = await ref.read(tabDetailProvider(widget.tabId).notifier).settle(
+              _paymentMethod,
+              confirmRunningGames: confirmRunning,
+            );
+        setState(() => _settledTab = settled);
+      } on RunningGamesException {
+        final ok = await confirmAction(
+          context,
+          title: 'Stop running games?',
+          message: 'Games are still running. Auto-stop them and settle this bill?',
+          confirmLabel: 'Stop & Settle',
+        );
+        if (!ok) return;
+        final settled = await ref.read(tabDetailProvider(widget.tabId).notifier).settle(
+              _paymentMethod,
+              confirmRunningGames: true,
+            );
+        setState(() => _settledTab = settled);
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -275,7 +308,7 @@ class _SettleScreenState extends ConsumerState<SettleScreen> {
                           const Text('TOTAL',
                               style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, letterSpacing: 0.5)),
                           Text(
-                            formatCurrency(displayTab.subtotal),
+                            formatCurrency(displayTab.subtotal + displayTab.runningGamesCost),
                             style: const TextStyle(
                                 fontWeight: FontWeight.bold, fontSize: 24, color: kAccent, letterSpacing: -0.5),
                           ),
@@ -314,7 +347,7 @@ class _SettleScreenState extends ConsumerState<SettleScreen> {
                   ),
                   const SizedBox(height: kSpaceLG),
                   ElevatedButton(
-                    onPressed: _settling ? null : _settle,
+                    onPressed: _settling ? null : () => _settle(displayTab),
                     child: _settling
                         ? const SizedBox(
                             height: 20,

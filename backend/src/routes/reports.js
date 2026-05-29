@@ -115,4 +115,40 @@ router.get('/range', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
+// GET /reports/eod — end-of-day checklist summary
+router.get('/eod', authenticate, async (req, res) => {
+  const date = req.query.date || new Date().toISOString().split('T')[0];
+  try {
+    const openTabsRes = await pool.query(
+      `SELECT COUNT(*) AS open_tabs,
+              COALESCE(SUM(subtotal), 0) AS open_total
+       FROM tabs WHERE status = 'open'`
+    );
+    const runningGamesRes = await pool.query(
+      `SELECT COUNT(*) AS running_games FROM game_sessions WHERE status = 'running'`
+    );
+    const overdueRes = await pool.query(
+      `SELECT COUNT(*) AS overdue_tabs FROM tabs
+       WHERE status = 'open' AND opened_at < NOW() - INTERVAL '3 hours'`
+    );
+    const settledRes = await pool.query(
+      `SELECT COUNT(*) AS settled_today,
+              COALESCE(SUM(subtotal), 0) AS revenue_today
+       FROM tabs WHERE status = 'closed' AND DATE(closed_at) = $1`,
+      [date]
+    );
+    res.json({
+      date,
+      open_tabs: parseInt(openTabsRes.rows[0].open_tabs, 10),
+      open_total: parseFloat(openTabsRes.rows[0].open_total),
+      running_games: parseInt(runningGamesRes.rows[0].running_games, 10),
+      overdue_tabs: parseInt(overdueRes.rows[0].overdue_tabs, 10),
+      settled_today: parseInt(settledRes.rows[0].settled_today, 10),
+      revenue_today: parseFloat(settledRes.rows[0].revenue_today),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

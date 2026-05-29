@@ -50,6 +50,18 @@ class AuthNotifier extends StateNotifier<AuthState> {
       return false;
     }
   }
+
+  Future<void> changePassword(String currentPassword, String newPassword) async {
+    final data = await ApiService.instance.patch('/auth/change-password', {
+      'current_password': currentPassword,
+      'new_password': newPassword,
+    });
+    state = AuthState(user: User.fromJson(data['user']));
+  }
+
+  void updateUser(User user) {
+    state = AuthState(user: user);
+  }
 }
 
 final authProvider = StateNotifierProvider<AuthNotifier, AuthState>(

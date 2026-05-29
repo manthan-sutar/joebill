@@ -41,4 +41,29 @@ class GameSession {
             : null,
         status: json['status'],
       );
+
+  GameSession copyWith({
+    int? id,
+    int? tabId,
+    int? menuItemId,
+    String? gameName,
+    double? ratePerMinute,
+    DateTime? startTime,
+    DateTime? endTime,
+    double? durationMinutes,
+    double? totalCost,
+    String? status,
+  }) =>
+      GameSession(
+        id: id ?? this.id,
+        tabId: tabId ?? this.tabId,
+        menuItemId: menuItemId ?? this.menuItemId,
+        gameName: gameName ?? this.gameName,
+        ratePerMinute: ratePerMinute ?? this.ratePerMinute,
+        startTime: startTime ?? this.startTime,
+        endTime: endTime ?? this.endTime,
+        durationMinutes: durationMinutes ?? this.durationMinutes,
+        totalCost: totalCost ?? this.totalCost,
+        status: status ?? this.status,
+      );
 }

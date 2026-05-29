@@ -116,12 +116,29 @@ router.post('/:id/items', authenticate, async (req, res) => {
     }
 
     const item = itemRes.rows[0];
-    const subtotal = parseFloat(item.price) * parseInt(quantity);
+    const qty = parseInt(quantity, 10);
 
-    const { rows } = await client.query(
-      'INSERT INTO tab_items (tab_id, menu_item_id, menu_item_name, quantity, unit_price, subtotal) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-      [tabId, menu_item_id, item.name, quantity, item.price, subtotal]
+    const { rows: existingRows } = await client.query(
+      'SELECT * FROM tab_items WHERE tab_id = $1 AND menu_item_id = $2 LIMIT 1',
+      [tabId, menu_item_id]
     );
+
+    let rows;
+    if (existingRows.length) {
+      const existing = existingRows[0];
+      const newQty = parseInt(existing.quantity, 10) + qty;
+      const subtotal = parseFloat(existing.unit_price) * newQty;
+      ({ rows } = await client.query(
+        'UPDATE tab_items SET quantity = $1, subtotal = $2 WHERE id = $3 RETURNING *',
+        [newQty, subtotal, existing.id]
+      ));
+    } else {
+      const subtotal = parseFloat(item.price) * qty;
+      ({ rows } = await client.query(
+        'INSERT INTO tab_items (tab_id, menu_item_id, menu_item_name, quantity, unit_price, subtotal) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
+        [tabId, menu_item_id, item.name, qty, item.price, subtotal]
+      ));
+    }
 
     await recalcTabTotal(tabId, client);
     await client.query('COMMIT');
@@ -306,7 +323,7 @@ router.patch('/:id/game-sessions/:sessionId', authenticate, async (req, res) => 
 
 // POST /tabs/:id/settle — close tab and record payment
 router.post('/:id/settle', authenticate, async (req, res) => {
-  const { payment_method } = req.body;
+  const { payment_method, confirm_running_games } = req.body;
   const tabId = req.params.id;
 
   if (!['cash', 'upi'].includes(payment_method))
@@ -322,11 +339,24 @@ router.post('/:id/settle', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'Open tab not found' });
     }
 
-    // Stop any still-running game sessions
     const { rows: runningSessions } = await client.query(
       "SELECT * FROM game_sessions WHERE tab_id = $1 AND status = 'running'",
       [tabId]
     );
+
+    if (runningSessions.length && !confirm_running_games) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({
+        error: 'running_games',
+        message: 'Stop running games before settling, or confirm to auto-stop them.',
+        running_games: runningSessions.map((s) => ({
+          id: s.id,
+          game_name: s.game_name,
+        })),
+      });
+    }
+
+    // Stop any still-running game sessions
     for (const session of runningSessions) {
       const endTime = new Date();
       const durationMs = endTime - new Date(session.start_time);

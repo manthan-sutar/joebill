@@ -10,6 +10,8 @@ import '../models/menu_item.dart';
 import '../services/api_service.dart';
 import '../utils/theme.dart';
 import '../utils/formatters.dart';
+import '../utils/confirm_dialog.dart';
+import '../utils/undo_snackbar.dart';
 import 'settle_screen.dart';
 
 // Quick-add favourites provider — top 6 items from reports
@@ -65,8 +67,13 @@ class _TabDetailScreenState extends ConsumerState<TabDetailScreen> {
       builder: (ctx) => _AddItemSheet(
         tabId: widget.tabId,
         items: items.where((i) => i.category != 'game').toList(),
-        onAdd: (menuItemId, qty) async {
-          await ref.read(tabDetailProvider(widget.tabId).notifier).addItem(menuItemId, qty);
+        onAdd: (item, qty) async {
+          await ref.read(tabDetailProvider(widget.tabId).notifier).addItem(
+                item.id,
+                qty,
+                menuItemName: item.name,
+                unitPrice: item.price,
+              );
         },
       ),
     );
@@ -77,74 +84,90 @@ class _TabDetailScreenState extends ConsumerState<TabDetailScreen> {
     final games = (menuAsync.value ?? []).where((i) => i.category == 'game').toList();
     if (games.isEmpty) return;
 
-    // Step 1: pick game
-    final game = await showDialog<MenuItem>(
+    await showModalBottomSheet(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: kSurface,
-        title: const Text('Select Game'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: games
-              .map((g) => ListTile(
-                    leading: const Icon(Icons.sports_esports, color: kAccent),
-                    title: Text(g.name),
-                    subtitle: Text('₹${g.price.toStringAsFixed(2)}/min'),
-                    onTap: () => Navigator.pop(ctx, g),
-                  ))
-              .toList(),
-        ),
+      backgroundColor: kSurface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-    );
-    if (game == null) return;
-
-    // Step 2: pick mode — live timer or manual entry
-    if (!mounted) return;
-    final mode = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: kSurface,
-        title: Text(game.name),
-        content: Column(
+      builder: (ctx) => Padding(
+        padding: const EdgeInsets.fromLTRB(kSpaceMD, kSpaceMD, kSpaceMD, kSpaceLG),
+        child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            ListTile(
-              leading: const Icon(Icons.timer, color: kGreen),
-              title: const Text('Start Timer'),
-              subtitle: const Text('Track time live, stop when done'),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              tileColor: kCard,
-              onTap: () => Navigator.pop(ctx, 'timer'),
+            const Text('Start Game', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: kSpaceMD),
+            Wrap(
+              spacing: kSpaceSM,
+              runSpacing: kSpaceSM,
+              children: games.map((g) {
+                return SizedBox(
+                  width: (MediaQuery.of(ctx).size.width - kSpaceMD * 2 - kSpaceSM) / 2,
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      Navigator.pop(ctx);
+                      try {
+                        await ref.read(tabDetailProvider(widget.tabId).notifier).startGame(
+                              menuItemId: g.id,
+                              gameName: g.name,
+                              ratePerMinute: g.price,
+                            );
+                      } catch (e) {
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text(e.toString()), backgroundColor: kAccent),
+                        );
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: kGreen.withValues(alpha: 0.15),
+                      foregroundColor: kGreen,
+                      minimumSize: const Size(0, 52),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(g.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        Text('₹${g.price.toStringAsFixed(2)}/min', style: const TextStyle(fontSize: 11)),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
             ),
-            const SizedBox(height: 10),
-            ListTile(
-              leading: const Icon(Icons.edit_note, color: kAmber),
-              title: const Text('Manual Entry'),
-              subtitle: const Text('Enter minutes played directly'),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              tileColor: kCard,
-              onTap: () => Navigator.pop(ctx, 'manual'),
+            const SizedBox(height: kSpaceSM),
+            TextButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                if (games.length == 1) {
+                  await _showManualGameEntry(games.first);
+                } else {
+                  final game = await showDialog<MenuItem>(
+                    context: context,
+                    builder: (dctx) => AlertDialog(
+                      backgroundColor: kSurface,
+                      title: const Text('Manual Entry'),
+                      content: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: games
+                            .map((g) => ListTile(
+                                  title: Text(g.name),
+                                  onTap: () => Navigator.pop(dctx, g),
+                                ))
+                            .toList(),
+                      ),
+                    ),
+                  );
+                  if (game != null) await _showManualGameEntry(game);
+                }
+              },
+              child: const Text('Manual time entry'),
             ),
           ],
         ),
       ),
     );
-    if (mode == null) return;
-
-    if (mode == 'timer') {
-      try {
-        await ref.read(tabDetailProvider(widget.tabId).notifier).startGame(game.id);
-      } catch (e) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: kAccent),
-        );
-      }
-    } else {
-      // Manual entry dialog
-      if (!mounted) return;
-      await _showManualGameEntry(game);
-    }
   }
 
   Future<void> _showManualGameEntry(MenuItem game) async {
@@ -206,7 +229,12 @@ class _TabDetailScreenState extends ConsumerState<TabDetailScreen> {
     }
 
     try {
-      await ref.read(tabDetailProvider(widget.tabId).notifier).addManualGame(game.id, mins);
+      await ref.read(tabDetailProvider(widget.tabId).notifier).addManualGame(
+            menuItemId: game.id,
+            gameName: game.name,
+            ratePerMinute: game.price,
+            durationMinutes: mins,
+          );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -216,12 +244,18 @@ class _TabDetailScreenState extends ConsumerState<TabDetailScreen> {
   }
 
   Future<void> _stopGame(GameSession session) async {
+    final elapsed = DateTime.now().difference(session.startTime);
+    final estCost = (elapsed.inSeconds / 60.0) * session.ratePerMinute;
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: kSurface,
         title: const Text('Stop Game?'),
-        content: Text('Stop ${session.gameName} session?'),
+        content: Text(
+          'Stop ${session.gameName}?\n\n'
+          'Time: ${formatDuration(elapsed)}\n'
+          'Estimated charge: ${formatCurrency(estCost)}',
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
           ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Stop')),
@@ -229,16 +263,73 @@ class _TabDetailScreenState extends ConsumerState<TabDetailScreen> {
       ),
     );
     if (confirm != true) return;
-    await ref.read(tabDetailProvider(widget.tabId).notifier).stopGame(session.id);
+    final previous = ref.read(tabDetailProvider(widget.tabId)).valueOrNull;
+    try {
+      await ref.read(tabDetailProvider(widget.tabId).notifier).stopGame(session.id);
+      if (previous != null && mounted) {
+        showUndoSnackBar(
+          context,
+          message: '${session.gameName} stopped',
+          onUndo: () => ref.read(tabDetailProvider(widget.tabId).notifier).undoToSnapshot(previous),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString()), backgroundColor: kAccent),
+      );
+    }
   }
 
   Future<void> _settle(BillTab tab) async {
+    if (tab.gameSessions.any((g) => g.isRunning)) {
+      final ok = await confirmAction(
+        context,
+        title: 'Running games',
+        message: 'Games are still running. Continue to settlement to stop them and close the bill?',
+        confirmLabel: 'Continue',
+      );
+      if (!ok) return;
+    }
+
     final result = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(builder: (_) => SettleScreen(tabId: widget.tabId)),
+      MaterialPageRoute(
+        builder: (_) => SettleScreen(
+          tabId: widget.tabId,
+          hasRunningGames: tab.gameSessions.any((g) => g.isRunning),
+        ),
+      ),
     );
     if (result == true && mounted) {
       Navigator.pop(context, true);
+    }
+  }
+
+  Future<void> _removeItem(TabItem item) async {
+    final ok = await confirmAction(
+      context,
+      title: 'Remove item?',
+      message: 'Remove ${item.menuItemName} ×${item.quantity} (${formatCurrency(item.subtotal)})?',
+      confirmLabel: 'Remove',
+      isDestructive: true,
+    );
+    if (!ok) return;
+    final previous = ref.read(tabDetailProvider(widget.tabId)).valueOrNull;
+    try {
+      await ref.read(tabDetailProvider(widget.tabId).notifier).removeItem(item.id);
+      if (previous != null && mounted) {
+        showUndoSnackBar(
+          context,
+          message: '${item.menuItemName} removed',
+          onUndo: () => ref.read(tabDetailProvider(widget.tabId).notifier).undoToSnapshot(previous),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString()), backgroundColor: kAccent),
+      );
     }
   }
 
@@ -374,12 +465,11 @@ class _TabDetailScreenState extends ConsumerState<TabDetailScreen> {
                       ...tab.items.map((item) => _ItemTile(
                             item: item,
                             editable: tab.isOpen,
+                            qtyEditable: item.id > 0,
                             onQtyChange: (qty) => ref
                                 .read(tabDetailProvider(widget.tabId).notifier)
                                 .updateItemQty(item.id, qty),
-                            onDelete: () => ref
-                                .read(tabDetailProvider(widget.tabId).notifier)
-                                .removeItem(item.id),
+                            onDelete: item.id > 0 ? () => _removeItem(item) : null,
                           )),
                       const SizedBox(height: 16),
                     ],
@@ -688,17 +778,19 @@ class _QuickAddBar extends ConsumerWidget {
                         name: item['menu_item_name'],
                         price: double.parse(item['price'].toString()),
                         onTap: () async {
+                          final previous = ref.read(tabDetailProvider(tabId)).valueOrNull;
                           try {
                             await ref.read(tabDetailProvider(tabId).notifier).addItem(
                               item['menu_item_id'],
                               1,
+                              menuItemName: item['menu_item_name'],
+                              unitPrice: double.parse(item['price'].toString()),
                             );
-                            if (context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text('${item['menu_item_name']} added'),
-                                  duration: const Duration(seconds: 1),
-                                ),
+                            if (context.mounted && previous != null) {
+                              showUndoSnackBar(
+                                context,
+                                message: '${item['menu_item_name']} added',
+                                onUndo: () => ref.read(tabDetailProvider(tabId).notifier).undoToSnapshot(previous),
                               );
                             }
                           } catch (e) {
@@ -783,13 +875,15 @@ class _QuickAddChipState extends State<_QuickAddChip> {
 class _ItemTile extends StatelessWidget {
   final TabItem item;
   final bool editable;
+  final bool qtyEditable;
   final ValueChanged<int> onQtyChange;
-  final VoidCallback onDelete;
+  final VoidCallback? onDelete;
   const _ItemTile({
     required this.item,
     required this.editable,
+    this.qtyEditable = true,
     required this.onQtyChange,
-    required this.onDelete,
+    this.onDelete,
   });
 
   @override
@@ -818,7 +912,7 @@ class _ItemTile extends StatelessWidget {
               ],
             ),
           ),
-          if (editable) ...[
+          if (editable && qtyEditable) ...[
             _QtyButton(
               icon: Icons.remove_rounded,
               enabled: item.quantity > 1,
@@ -838,18 +932,28 @@ class _ItemTile extends StatelessWidget {
               onTap: () => onQtyChange(item.quantity + 1),
               color: kAccent,
             ),
-            const SizedBox(width: kSpaceSM),
-            GestureDetector(
-              onTap: onDelete,
-              child: Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  color: kAccent.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(kRadiusSM),
+            if (onDelete != null) ...[
+              const SizedBox(width: kSpaceSM),
+              GestureDetector(
+                onTap: onDelete,
+                child: Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: kAccent.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(kRadiusSM),
+                  ),
+                  child: const Icon(Icons.delete_outline_rounded, size: 16, color: kAccent),
                 ),
-                child: const Icon(Icons.delete_outline_rounded, size: 16, color: kAccent),
               ),
+            ],
+          ] else if (editable) ...[
+            Text('×${item.quantity}', style: const TextStyle(color: kTextMuted, fontSize: 13)),
+            const SizedBox(width: kSpaceSM),
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2, color: kTextMuted.withValues(alpha: 0.6)),
             ),
           ] else
             Text('×${item.quantity}', style: const TextStyle(color: kTextMuted, fontSize: 13)),
@@ -891,7 +995,7 @@ class _QtyButton extends StatelessWidget {
 class _AddItemSheet extends StatefulWidget {
   final int tabId;
   final List<MenuItem> items;
-  final Future<void> Function(int menuItemId, int qty) onAdd;
+  final Future<void> Function(MenuItem item, int qty) onAdd;
   const _AddItemSheet({required this.tabId, required this.items, required this.onAdd});
 
   @override
@@ -900,11 +1004,63 @@ class _AddItemSheet extends StatefulWidget {
 
 class _AddItemSheetState extends State<_AddItemSheet> {
   String _selectedCategory = 'all';
+  String _searchQuery = '';
+  final _searchCtrl = TextEditingController();
   final Map<int, int> _quantities = {};
+  bool _adding = false;
 
-  List<MenuItem> get _filtered => _selectedCategory == 'all'
-      ? widget.items
-      : widget.items.where((i) => i.category == _selectedCategory).toList();
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  List<MenuItem> get _filtered {
+    var items = _selectedCategory == 'all'
+        ? widget.items
+        : widget.items.where((i) => i.category == _selectedCategory).toList();
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isNotEmpty) {
+      items = items.where((i) => i.name.toLowerCase().contains(q)).toList();
+    }
+    return items;
+  }
+
+  void _addOne(MenuItem item) {
+    final messenger = ScaffoldMessenger.of(context);
+    widget.onAdd(item, 1).catchError((e) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(e.toString()), backgroundColor: kAccent),
+      );
+    });
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('${item.name} added'),
+        duration: const Duration(seconds: 1),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _submitBatch() {
+    if (_adding) return;
+    final toAdd = _quantities.entries.where((e) => e.value > 0).toList();
+    if (toAdd.isEmpty) return;
+
+    setState(() => _adding = true);
+    final messenger = ScaffoldMessenger.of(context);
+
+    for (final entry in toAdd) {
+      final item = widget.items.firstWhere((i) => i.id == entry.key);
+      widget.onAdd(item, entry.value).catchError((e) {
+        messenger.showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: kAccent),
+        );
+      });
+    }
+
+    Navigator.pop(context);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -935,22 +1091,48 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                 const Spacer(),
                 if (_quantities.isNotEmpty)
                   ElevatedButton(
-                    onPressed: () async {
-                      for (final entry in _quantities.entries) {
-                        if (entry.value > 0) await widget.onAdd(entry.key, entry.value);
-                      }
-                      if (context.mounted) Navigator.pop(context);
-                    },
+                    onPressed: _adding ? null : _submitBatch,
                     style: ElevatedButton.styleFrom(
                       minimumSize: const Size(0, 38),
                       padding: const EdgeInsets.symmetric(horizontal: kSpaceMD),
                     ),
-                    child: Text('Add ${_quantities.values.fold(0, (a, b) => a + b)}'),
+                    child: _adding
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : Text('Add ${_quantities.values.fold(0, (a, b) => a + b)}'),
                   ),
               ],
             ),
           ),
           const SizedBox(height: kSpaceMD),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: kSpaceMD),
+            child: TextField(
+              controller: _searchCtrl,
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: 'Search items...',
+                prefixIcon: const Icon(Icons.search_rounded, size: 20),
+                suffixIcon: _searchQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear_rounded, size: 18),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      )
+                    : null,
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: kSpaceSM + 2),
+              ),
+              textCapitalization: TextCapitalization.words,
+              onChanged: (v) => setState(() => _searchQuery = v),
+            ),
+          ),
+          const SizedBox(height: kSpaceSM),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: kSpaceMD),
@@ -971,7 +1153,16 @@ class _AddItemSheetState extends State<_AddItemSheet> {
           ),
           const SizedBox(height: kSpaceSM),
           Expanded(
-            child: ListView.builder(
+            child: _filtered.isEmpty
+                ? Center(
+                    child: Text(
+                      _searchQuery.isNotEmpty
+                          ? 'No items match "$_searchQuery"'
+                          : 'No items in this category',
+                      style: const TextStyle(color: kTextMuted),
+                    ),
+                  )
+                : ListView.builder(
               controller: scrollCtrl,
               padding: const EdgeInsets.symmetric(horizontal: kSpaceMD),
               itemCount: _filtered.length,
@@ -986,14 +1177,21 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                       child: Row(
                         children: [
                           Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(item.name,
-                                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                                Text(formatCurrency(item.price),
-                                    style: const TextStyle(color: kTextMuted, fontSize: 12)),
-                              ],
+                            child: InkWell(
+                              onTap: () => _addOne(item),
+                              borderRadius: BorderRadius.circular(kRadiusSM),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(vertical: kSpaceXS),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(item.name,
+                                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                                    Text(formatCurrency(item.price),
+                                        style: const TextStyle(color: kTextMuted, fontSize: 12)),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
                           _QtyButton(

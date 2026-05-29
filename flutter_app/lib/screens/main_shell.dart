@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/auth_provider.dart';
 import '../utils/theme.dart';
+import '../widgets/sync_banner.dart';
 import 'home_screen.dart';
 import 'reports_screen.dart';
 import 'settings_screen.dart';
@@ -28,9 +29,16 @@ class _MainShellState extends ConsumerState<MainShell> {
     final isAdmin = auth.user?.isAdmin ?? false;
 
     return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: _screens,
+      body: Column(
+        children: [
+          const SyncBanner(),
+          Expanded(
+            child: IndexedStack(
+              index: _currentIndex,
+              children: _screens,
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(

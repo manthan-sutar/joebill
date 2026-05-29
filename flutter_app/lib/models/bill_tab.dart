@@ -67,4 +67,35 @@ class BillTab {
         itemCount: json['item_count'] != null ? int.parse(json['item_count'].toString()) : null,
         activeGames: json['active_games'] != null ? int.parse(json['active_games'].toString()) : null,
       );
+
+  BillTab copyWith({
+    int? id,
+    String? customerName,
+    DateTime? openedAt,
+    DateTime? closedAt,
+    String? status,
+    String? paymentMethod,
+    double? subtotal,
+    String? notes,
+    String? customerPhone,
+    List<TabItem>? items,
+    List<GameSession>? gameSessions,
+    int? itemCount,
+    int? activeGames,
+  }) =>
+      BillTab(
+        id: id ?? this.id,
+        customerName: customerName ?? this.customerName,
+        openedAt: openedAt ?? this.openedAt,
+        closedAt: closedAt ?? this.closedAt,
+        status: status ?? this.status,
+        paymentMethod: paymentMethod ?? this.paymentMethod,
+        subtotal: subtotal ?? this.subtotal,
+        notes: notes ?? this.notes,
+        customerPhone: customerPhone ?? this.customerPhone,
+        items: items ?? this.items,
+        gameSessions: gameSessions ?? this.gameSessions,
+        itemCount: itemCount ?? this.itemCount,
+        activeGames: activeGames ?? this.activeGames,
+      );
 }

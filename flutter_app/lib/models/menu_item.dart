@@ -34,4 +34,21 @@ class MenuItem {
         'unit': unit,
         'is_active': isActive,
       };
+
+  MenuItem copyWith({
+    int? id,
+    String? name,
+    String? category,
+    double? price,
+    String? unit,
+    bool? isActive,
+  }) =>
+      MenuItem(
+        id: id ?? this.id,
+        name: name ?? this.name,
+        category: category ?? this.category,
+        price: price ?? this.price,
+        unit: unit ?? this.unit,
+        isActive: isActive ?? this.isActive,
+      );
 }
