@@ -7,6 +7,7 @@ const menuItemRoutes = require('./routes/menuItems');
 const tabRoutes = require('./routes/tabs');
 const reportRoutes = require('./routes/reports');
 const customerRoutes = require('./routes/customers');
+const inventoryRoutes = require('./routes/inventory');
 
 const app = express();
 app.use(cors());
@@ -17,6 +18,7 @@ app.use('/menu-items', menuItemRoutes);
 app.use('/tabs', tabRoutes);
 app.use('/reports', reportRoutes);
 app.use('/customers', customerRoutes);
+app.use('/inventory', inventoryRoutes);
 
 app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date() }));
 

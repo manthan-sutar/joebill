@@ -1178,7 +1178,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                         children: [
                           Expanded(
                             child: InkWell(
-                              onTap: () => _addOne(item),
+                              onTap: item.isOutOfStock ? null : () => _addOne(item),
                               borderRadius: BorderRadius.circular(kRadiusSM),
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(vertical: kSpaceXS),
@@ -1186,9 +1186,24 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(item.name,
-                                        style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                                    Text(formatCurrency(item.price),
-                                        style: const TextStyle(color: kTextMuted, fontSize: 12)),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 14,
+                                          color: item.isOutOfStock ? kTextMuted : null,
+                                        )),
+                                    Text(
+                                      item.trackStock
+                                          ? '${formatCurrency(item.price)} • Stock ${item.stockQuantity ?? 0}'
+                                          : formatCurrency(item.price),
+                                      style: TextStyle(
+                                        color: item.isOutOfStock
+                                            ? kAccent
+                                            : item.isLowStock
+                                                ? kAmber
+                                                : kTextMuted,
+                                        fontSize: 12,
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),

@@ -6,6 +6,7 @@ import '../models/menu_item.dart';
 import '../services/api_service.dart';
 import '../utils/theme.dart';
 import '../utils/formatters.dart';
+import 'inventory_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -41,6 +42,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen>
     return Scaffold(
       appBar: AppBar(
         title: const Text('Settings'),
+        actions: [
+          if (isAdmin)
+            IconButton(
+              icon: const Icon(Icons.inventory_2_outlined),
+              tooltip: 'Inventory',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const InventoryScreen()),
+              ),
+            ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           tabs: const [

@@ -2,7 +2,6 @@ const router = require('express').Router();
 const pool = require('../db/pool');
 const { authenticate } = require('../middleware/auth');
 
-// Recalculate and update tab subtotal
 async function recalcTabTotal(tabId, client) {
   const db = client || pool;
   const { rows } = await db.query(
@@ -15,6 +14,32 @@ async function recalcTabTotal(tabId, client) {
   );
   await db.query('UPDATE tabs SET subtotal = $1 WHERE id = $2', [rows[0].total, tabId]);
   return parseFloat(rows[0].total);
+}
+
+async function adjustStock(client, menuItemId, delta, userId, reason) {
+  const { rows } = await client.query(
+    'SELECT * FROM menu_items WHERE id = $1 FOR UPDATE',
+    [menuItemId]
+  );
+  if (!rows.length) return;
+  const item = rows[0];
+  if (!item.track_stock || item.category === 'game') return;
+
+  const current = item.stock_quantity ?? 0;
+  const next = current + delta;
+  if (next < 0) {
+    throw new Error(`Insufficient stock for ${item.name} (only ${current} left)`);
+  }
+
+  await client.query(
+    'UPDATE menu_items SET stock_quantity = $1, updated_at = NOW() WHERE id = $2',
+    [next, menuItemId]
+  );
+  await client.query(
+    `INSERT INTO inventory_logs (menu_item_id, change_qty, reason, created_by)
+     VALUES ($1, $2, $3, $4)`,
+    [menuItemId, delta, reason, userId]
+  );
 }
 
 // GET /tabs — open tabs
@@ -118,6 +143,14 @@ router.post('/:id/items', authenticate, async (req, res) => {
     const item = itemRes.rows[0];
     const qty = parseInt(quantity, 10);
 
+    if (item.track_stock && item.category !== 'game') {
+      const available = item.stock_quantity ?? 0;
+      if (available < qty) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `Insufficient stock for ${item.name} (only ${available} left)` });
+      }
+    }
+
     const { rows: existingRows } = await client.query(
       'SELECT * FROM tab_items WHERE tab_id = $1 AND menu_item_id = $2 LIMIT 1',
       [tabId, menu_item_id]
@@ -140,12 +173,13 @@ router.post('/:id/items', authenticate, async (req, res) => {
       ));
     }
 
+    await adjustStock(client, menu_item_id, -qty, req.user.id, 'sale');
     await recalcTabTotal(tabId, client);
     await client.query('COMMIT');
     res.status(201).json(rows[0]);
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    res.status(err.message?.includes('Insufficient stock') ? 400 : 500).json({ error: err.message });
   } finally {
     client.release();
   }
@@ -172,18 +206,38 @@ router.patch('/:id/items/:itemId', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'Item not found' });
     }
 
-    const subtotal = parseFloat(existing[0].unit_price) * parseInt(quantity);
+    const oldQty = parseInt(existing[0].quantity, 10);
+    const newQty = parseInt(quantity, 10);
+    const delta = newQty - oldQty;
+
+    if (delta > 0) {
+      const { rows: menuRows } = await client.query('SELECT * FROM menu_items WHERE id = $1', [existing[0].menu_item_id]);
+      const menuItem = menuRows[0];
+      if (menuItem?.track_stock && menuItem.category !== 'game') {
+        const available = menuItem.stock_quantity ?? 0;
+        if (available < delta) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: `Insufficient stock for ${menuItem.name} (only ${available} left)` });
+        }
+      }
+    }
+
+    const subtotal = parseFloat(existing[0].unit_price) * newQty;
     const { rows } = await client.query(
       'UPDATE tab_items SET quantity = $1, subtotal = $2 WHERE id = $3 RETURNING *',
-      [quantity, subtotal, itemId]
+      [newQty, subtotal, itemId]
     );
+
+    if (delta !== 0) {
+      await adjustStock(client, existing[0].menu_item_id, -delta, req.user.id, 'sale');
+    }
 
     await recalcTabTotal(tabId, client);
     await client.query('COMMIT');
     res.json(rows[0]);
   } catch (err) {
     await client.query('ROLLBACK');
-    res.status(500).json({ error: err.message });
+    res.status(err.message?.includes('Insufficient stock') ? 400 : 500).json({ error: err.message });
   } finally {
     client.release();
   }
@@ -195,14 +249,18 @@ router.delete('/:id/items/:itemId', authenticate, async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    const { rowCount } = await client.query(
-      'DELETE FROM tab_items WHERE id = $1 AND tab_id = $2',
+
+    const { rows: existing } = await client.query(
+      'SELECT * FROM tab_items WHERE id = $1 AND tab_id = $2',
       [itemId, tabId]
     );
-    if (!rowCount) {
+    if (!existing.length) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Item not found' });
     }
+
+    await client.query('DELETE FROM tab_items WHERE id = $1 AND tab_id = $2', [itemId, tabId]);
+    await adjustStock(client, existing[0].menu_item_id, existing[0].quantity, req.user.id, 'return');
     await recalcTabTotal(tabId, client);
     await client.query('COMMIT');
     res.json({ success: true });

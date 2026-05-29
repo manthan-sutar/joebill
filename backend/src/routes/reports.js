@@ -2,22 +2,74 @@ const router = require('express').Router();
 const pool = require('../db/pool');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 
-// GET /reports/daily?date=2024-01-15
+function parseDateRange(query) {
+  const { date, from, to } = query;
+  if (from && to) {
+    return { from, to, label: `${from} — ${to}`, singleDate: null };
+  }
+  const d = date || new Date().toISOString().split('T')[0];
+  return { from: d, to: d, label: d, singleDate: d };
+}
+
+function tabFilters(range, paymentMethod) {
+  const conditions = ["t.status = 'closed'", 'DATE(t.closed_at) BETWEEN $1 AND $2'];
+  const params = [range.from, range.to];
+  let idx = 3;
+  if (paymentMethod && paymentMethod !== 'all') {
+    conditions.push(`t.payment_method = $${idx++}`);
+    params.push(paymentMethod);
+  }
+  return { where: conditions.join(' AND '), params, nextIdx: idx };
+}
+
+// GET /reports/daily?date= | ?from=&to= &payment_method=&category=
 router.get('/daily', authenticate, requireAdmin, async (req, res) => {
-  const date = req.query.date || new Date().toISOString().split('T')[0];
+  const range = parseDateRange(req.query);
+  const paymentMethod = req.query.payment_method || 'all';
+  const category = req.query.category || 'all';
+  const { where, params, nextIdx } = tabFilters(range, paymentMethod);
+
+  const categoryJoin =
+    category !== 'all'
+      ? `JOIN tab_items ti ON ti.tab_id = t.id JOIN menu_items mi ON ti.menu_item_id = mi.id AND mi.category = $${nextIdx}`
+      : '';
+  const categoryParams = category !== 'all' ? [...params, category] : params;
+
   try {
-    const summaryRes = await pool.query(
-      `SELECT
-         COUNT(*) AS total_bills,
-         COALESCE(SUM(subtotal), 0) AS total_revenue,
-         COUNT(CASE WHEN payment_method = 'cash' THEN 1 END) AS cash_bills,
-         COUNT(CASE WHEN payment_method = 'upi' THEN 1 END) AS upi_bills,
-         COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN subtotal ELSE 0 END), 0) AS cash_revenue,
-         COALESCE(SUM(CASE WHEN payment_method = 'upi' THEN subtotal ELSE 0 END), 0) AS upi_revenue
-       FROM tabs
-       WHERE status = 'closed' AND DATE(closed_at) = $1`,
-      [date]
-    );
+    let summaryRes;
+    if (category !== 'all') {
+      summaryRes = await pool.query(
+        `SELECT
+           COUNT(DISTINCT t.id) AS total_bills,
+           COALESCE(SUM(ti.subtotal), 0) AS total_revenue,
+           COUNT(DISTINCT CASE WHEN t.payment_method = 'cash' THEN t.id END) AS cash_bills,
+           COUNT(DISTINCT CASE WHEN t.payment_method = 'upi' THEN t.id END) AS upi_bills,
+           COALESCE(SUM(CASE WHEN t.payment_method = 'cash' THEN ti.subtotal ELSE 0 END), 0) AS cash_revenue,
+           COALESCE(SUM(CASE WHEN t.payment_method = 'upi' THEN ti.subtotal ELSE 0 END), 0) AS upi_revenue
+         FROM tabs t
+         JOIN tab_items ti ON ti.tab_id = t.id
+         JOIN menu_items mi ON ti.menu_item_id = mi.id AND mi.category = $${nextIdx}
+         WHERE ${where}`,
+        categoryParams
+      );
+    } else {
+      summaryRes = await pool.query(
+        `SELECT
+           COUNT(*) AS total_bills,
+           COALESCE(SUM(subtotal), 0) AS total_revenue,
+           COUNT(CASE WHEN payment_method = 'cash' THEN 1 END) AS cash_bills,
+           COUNT(CASE WHEN payment_method = 'upi' THEN 1 END) AS upi_bills,
+           COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN subtotal ELSE 0 END), 0) AS cash_revenue,
+           COALESCE(SUM(CASE WHEN payment_method = 'upi' THEN subtotal ELSE 0 END), 0) AS upi_revenue
+         FROM tabs t
+         WHERE ${where}`,
+        params
+      );
+    }
+
+    const catWhere =
+      category !== 'all' ? `AND mi.category = $${nextIdx}` : '';
+    const catParams = category !== 'all' ? [...params, category] : params;
 
     const categoryRes = await pool.query(
       `SELECT
@@ -27,12 +79,12 @@ router.get('/daily', authenticate, requireAdmin, async (req, res) => {
        FROM tab_items ti
        JOIN menu_items mi ON ti.menu_item_id = mi.id
        JOIN tabs t ON ti.tab_id = t.id
-       WHERE t.status = 'closed' AND DATE(t.closed_at) = $1
+       WHERE ${where} ${catWhere}
        GROUP BY mi.category`,
-      [date]
+      catParams
     );
 
-    const gameRevenueRes = await pool.query(
+    const gameRes = await pool.query(
       `SELECT
          gs.game_name,
          COUNT(*) AS sessions,
@@ -40,9 +92,9 @@ router.get('/daily', authenticate, requireAdmin, async (req, res) => {
          COALESCE(SUM(gs.total_cost), 0) AS revenue
        FROM game_sessions gs
        JOIN tabs t ON gs.tab_id = t.id
-       WHERE t.status = 'closed' AND DATE(t.closed_at) = $1
+       WHERE ${where}
        GROUP BY gs.game_name`,
-      [date]
+      params
     );
 
     const topItemsRes = await pool.query(
@@ -54,18 +106,22 @@ router.get('/daily', authenticate, requireAdmin, async (req, res) => {
        FROM tab_items ti
        JOIN menu_items mi ON ti.menu_item_id = mi.id
        JOIN tabs t ON ti.tab_id = t.id
-       WHERE t.status = 'closed' AND DATE(t.closed_at) = $1
+       WHERE ${where} ${catWhere}
        GROUP BY ti.menu_item_name, mi.category
        ORDER BY total_qty DESC
        LIMIT 10`,
-      [date]
+      catParams
     );
 
     res.json({
-      date,
+      date: range.singleDate,
+      from: range.from,
+      to: range.to,
+      label: range.label,
+      filters: { payment_method: paymentMethod, category },
       summary: summaryRes.rows[0],
       by_category: categoryRes.rows,
-      game_breakdown: gameRevenueRes.rows,
+      game_breakdown: category === 'all' || category === 'game' ? gameRes.rows : [],
       top_items: topItemsRes.rows,
     });
   } catch (err) {
@@ -73,7 +129,7 @@ router.get('/daily', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
-// GET /reports/quick-items — top 6 non-game items by order frequency (for quick-add bar)
+// GET /reports/quick-items
 router.get('/quick-items', authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -92,7 +148,7 @@ router.get('/quick-items', authenticate, async (req, res) => {
   }
 });
 
-// GET /reports/range?from=2024-01-01&to=2024-01-31
+// GET /reports/range?from=&to=
 router.get('/range', authenticate, requireAdmin, async (req, res) => {
   const { from, to } = req.query;
   if (!from || !to) return res.status(400).json({ error: 'from and to dates required' });
@@ -115,13 +171,12 @@ router.get('/range', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
-// GET /reports/eod — end-of-day checklist summary
+// GET /reports/eod
 router.get('/eod', authenticate, async (req, res) => {
   const date = req.query.date || new Date().toISOString().split('T')[0];
   try {
     const openTabsRes = await pool.query(
-      `SELECT COUNT(*) AS open_tabs,
-              COALESCE(SUM(subtotal), 0) AS open_total
+      `SELECT COUNT(*) AS open_tabs, COALESCE(SUM(subtotal), 0) AS open_total
        FROM tabs WHERE status = 'open'`
     );
     const runningGamesRes = await pool.query(
@@ -132,8 +187,7 @@ router.get('/eod', authenticate, async (req, res) => {
        WHERE status = 'open' AND opened_at < NOW() - INTERVAL '3 hours'`
     );
     const settledRes = await pool.query(
-      `SELECT COUNT(*) AS settled_today,
-              COALESCE(SUM(subtotal), 0) AS revenue_today
+      `SELECT COUNT(*) AS settled_today, COALESCE(SUM(subtotal), 0) AS revenue_today
        FROM tabs WHERE status = 'closed' AND DATE(closed_at) = $1`,
       [date]
     );
