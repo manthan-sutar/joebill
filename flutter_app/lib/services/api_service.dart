@@ -85,9 +85,23 @@ class ApiService {
   }
 
   dynamic _handle(http.Response res) {
-    final body = jsonDecode(res.body);
+    dynamic body;
+    try {
+      body = jsonDecode(res.body);
+    } catch (_) {
+      if (res.statusCode == 404) {
+        throw ApiException(
+          'API not found — update the server or check app version',
+          res.statusCode,
+        );
+      }
+      throw ApiException(
+        'Server error (${res.statusCode}). Try again in a moment.',
+        res.statusCode,
+      );
+    }
     if (res.statusCode >= 200 && res.statusCode < 300) return body;
-    final msg = body['error'] ?? 'Request failed (${res.statusCode})';
-    throw ApiException(msg, res.statusCode);
+    final msg = body is Map ? (body['error'] ?? 'Request failed (${res.statusCode})') : 'Request failed (${res.statusCode})';
+    throw ApiException(msg.toString(), res.statusCode);
   }
 }

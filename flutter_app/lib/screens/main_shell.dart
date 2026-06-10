@@ -4,6 +4,7 @@ import '../providers/auth_provider.dart';
 import '../utils/theme.dart';
 import '../widgets/sync_banner.dart';
 import 'home_screen.dart';
+import 'customers_screen.dart';
 import 'reports_screen.dart';
 import 'settings_screen.dart';
 
@@ -19,6 +20,7 @@ class _MainShellState extends ConsumerState<MainShell> {
 
   final _screens = const [
     HomeScreen(),
+    CustomersScreen(),
     ReportsScreen(),
     SettingsScreen(),
   ];
@@ -52,7 +54,7 @@ class _MainShellState extends ConsumerState<MainShell> {
             elevation: 0,
             backgroundColor: Colors.transparent,
             onTap: (i) {
-              if ((i == 1 || i == 2) && !isAdmin) {
+              if ((i == 2 || i == 3) && !isAdmin) {
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('Admin access required')),
                 );
@@ -65,6 +67,11 @@ class _MainShellState extends ConsumerState<MainShell> {
                 icon: Icon(Icons.table_bar_outlined),
                 activeIcon: Icon(Icons.table_bar_rounded),
                 label: 'Tabs',
+              ),
+              const BottomNavigationBarItem(
+                icon: Icon(Icons.people_outline),
+                activeIcon: Icon(Icons.people_rounded),
+                label: 'Customers',
               ),
               BottomNavigationBarItem(
                 icon: Icon(Icons.bar_chart_outlined,

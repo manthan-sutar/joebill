@@ -11,6 +11,7 @@ import '../services/pdf_service.dart';
 import '../utils/theme.dart';
 import '../utils/formatters.dart';
 import '../utils/confirm_dialog.dart';
+import '../providers/customers_provider.dart';
 
 class SettleScreen extends ConsumerStatefulWidget {
   final int tabId;
@@ -29,12 +30,25 @@ class _SettleScreenState extends ConsumerState<SettleScreen> {
   Future<void> _settle(BillTab tab) async {
     final total = tab.subtotal + tab.runningGamesCost;
 
-    if (total >= 500) {
+    if (_paymentMethod == 'credit' && isGenericTabName(tab.customerName)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Use a real customer name for credit (not Table/Bar)'),
+          backgroundColor: kAccent,
+        ),
+      );
+      return;
+    }
+
+    if (total >= 500 || _paymentMethod == 'credit') {
+      final msg = _paymentMethod == 'credit'
+          ? 'Put ${formatCurrency(total)} for ${tab.customerName} on credit? Bill will appear in Customers.'
+          : 'Settle ${formatCurrency(total)} for ${tab.customerName} via ${_paymentMethod.toUpperCase()}?';
       final ok = await confirmAction(
         context,
-        title: 'Confirm settlement',
-        message: 'Settle ${formatCurrency(total)} for ${tab.customerName} via ${_paymentMethod.toUpperCase()}?',
-        confirmLabel: 'Settle',
+        title: _paymentMethod == 'credit' ? 'Confirm credit' : 'Confirm settlement',
+        message: msg,
+        confirmLabel: _paymentMethod == 'credit' ? 'On Credit' : 'Settle',
       );
       if (!ok) return;
     }
@@ -345,6 +359,16 @@ class _SettleScreenState extends ConsumerState<SettleScreen> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: kSpaceSM + 4),
+                  SizedBox(
+                    width: double.infinity,
+                    child: _PaymentOption(
+                      icon: Icons.account_balance_wallet_outlined,
+                      label: 'Credit (pay later)',
+                      selected: _paymentMethod == 'credit',
+                      onTap: () => setState(() => _paymentMethod = 'credit'),
+                    ),
+                  ),
                   const SizedBox(height: kSpaceLG),
                   ElevatedButton(
                     onPressed: _settling ? null : () => _settle(displayTab),
@@ -361,17 +385,35 @@ class _SettleScreenState extends ConsumerState<SettleScreen> {
                   Container(
                     padding: const EdgeInsets.all(kSpaceMD),
                     decoration: BoxDecoration(
-                      color: kGreen.withValues(alpha: 0.1),
+                      color: (_settledTab!.isOnCredit ? kAmber : kGreen)
+                          .withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(kRadiusMD),
-                      border: Border.all(color: kGreen.withValues(alpha: 0.35)),
+                      border: Border.all(
+                        color: (_settledTab!.isOnCredit ? kAmber : kGreen)
+                            .withValues(alpha: 0.35),
+                      ),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.check_circle_rounded, color: kGreen, size: 22),
+                        Icon(
+                          _settledTab!.isOnCredit
+                              ? Icons.schedule_rounded
+                              : Icons.check_circle_rounded,
+                          color: _settledTab!.isOnCredit ? kAmber : kGreen,
+                          size: 22,
+                        ),
                         const SizedBox(width: kSpaceSM + 2),
-                        Text(
-                          'Settled via ${_settledTab!.paymentMethod?.toUpperCase()}',
-                          style: const TextStyle(color: kGreen, fontWeight: FontWeight.w600, fontSize: 14),
+                        Expanded(
+                          child: Text(
+                            _settledTab!.isOnCredit
+                                ? 'On credit — collect from Customers tab'
+                                : 'Settled via ${_settledTab!.paymentMethod?.toUpperCase()}',
+                            style: TextStyle(
+                              color: _settledTab!.isOnCredit ? kAmber : kGreen,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
                         ),
                       ],
                     ),

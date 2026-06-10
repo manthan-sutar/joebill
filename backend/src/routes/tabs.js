@@ -42,6 +42,43 @@ async function adjustStock(client, menuItemId, delta, userId, reason) {
   );
 }
 
+function isGenericTabName(name) {
+  return /^(table\s*\d+|bar|pool table|counter)$/i.test(String(name || '').trim());
+}
+
+async function ensureCustomerLinked(client, tab) {
+  if (tab.customer_id) return tab.customer_id;
+
+  const custName = tab.customer_name;
+  if (isGenericTabName(custName)) {
+    throw new Error('Use a real customer name (not Table/Bar) for credit bills');
+  }
+
+  const custPhone = tab.customer_phone || null;
+  const existing = await client.query(
+    'SELECT id FROM customers WHERE LOWER(name) = LOWER($1) LIMIT 1',
+    [custName]
+  );
+
+  let customerId;
+  if (existing.rows.length) {
+    customerId = existing.rows[0].id;
+    await client.query(
+      'UPDATE customers SET phone = COALESCE($1, phone) WHERE id = $2',
+      [custPhone, customerId]
+    );
+  } else {
+    const ins = await client.query(
+      'INSERT INTO customers (name, phone) VALUES ($1, $2) RETURNING id',
+      [custName, custPhone]
+    );
+    customerId = ins.rows[0].id;
+  }
+
+  await client.query('UPDATE tabs SET customer_id = $1 WHERE id = $2', [customerId, tab.id]);
+  return customerId;
+}
+
 // GET /tabs — open tabs
 router.get('/', authenticate, async (req, res) => {
   try {
@@ -384,8 +421,8 @@ router.post('/:id/settle', authenticate, async (req, res) => {
   const { payment_method, confirm_running_games } = req.body;
   const tabId = req.params.id;
 
-  if (!['cash', 'upi'].includes(payment_method))
-    return res.status(400).json({ error: 'payment_method must be cash or upi' });
+  if (!['cash', 'upi', 'credit'].includes(payment_method))
+    return res.status(400).json({ error: 'payment_method must be cash, upi, or credit' });
 
   const client = await pool.connect();
   try {
@@ -428,25 +465,38 @@ router.post('/:id/settle', authenticate, async (req, res) => {
 
     const total = await recalcTabTotal(tabId, client);
 
+    let tabRow = tabRes.rows[0];
+    if (payment_method === 'credit') {
+      const customerId = await ensureCustomerLinked(client, tabRow);
+      tabRow = { ...tabRow, customer_id: customerId };
+    }
+
     const { rows } = await client.query(
-      "UPDATE tabs SET status='closed', closed_at=NOW(), payment_method=$1, subtotal=$2 WHERE id=$3 RETURNING *",
-      [payment_method, total, tabId]
+      "UPDATE tabs SET status='closed', closed_at=NOW(), payment_method=$1, subtotal=$2, customer_id=COALESCE(customer_id, $4) WHERE id=$3 RETURNING *",
+      [payment_method, total, tabId, tabRow.customer_id || null]
     );
 
     const settledTab = rows[0];
 
-    // Auto-update customer visit count if linked
+    // Auto-update customer visit count if linked (skip for credit until paid)
     if (settledTab.customer_id) {
-      await client.query(
-        'UPDATE customers SET visit_count = visit_count + 1, last_visit = NOW() WHERE id = $1',
-        [settledTab.customer_id]
-      );
-    } else {
+      if (payment_method === 'credit') {
+        await client.query(
+          'UPDATE customers SET last_visit = NOW() WHERE id = $1',
+          [settledTab.customer_id]
+        );
+      } else {
+        await client.query(
+          'UPDATE customers SET visit_count = visit_count + 1, last_visit = NOW() WHERE id = $1',
+          [settledTab.customer_id]
+        );
+      }
+    } else if (payment_method !== 'credit') {
       // Auto-create customer record from name+phone for future autocomplete
       const custName = settledTab.customer_name;
       const custPhone = settledTab.customer_phone || null;
       // Skip generic table names like "Table 1", "Bar"
-      const isGeneric = /^(table\s*\d+|bar|pool table|counter)$/i.test(custName.trim());
+      const isGeneric = isGenericTabName(custName);
       if (!isGeneric) {
         const existing = await client.query(
           'SELECT id FROM customers WHERE LOWER(name) = LOWER($1) LIMIT 1',
@@ -472,6 +522,54 @@ router.post('/:id/settle', authenticate, async (req, res) => {
 
     await client.query('COMMIT');
     res.json({ ...settledTab, items: itemsRes.rows, game_sessions: gamesRes.rows });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// POST /tabs/:id/pay-credit — collect payment on a credit bill
+router.post('/:id/pay-credit', authenticate, async (req, res) => {
+  const { payment_method } = req.body;
+  const tabId = req.params.id;
+
+  if (!['cash', 'upi'].includes(payment_method)) {
+    return res.status(400).json({ error: 'payment_method must be cash or upi' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const tabRes = await client.query(
+      "SELECT * FROM tabs WHERE id = $1 AND status = 'closed' AND payment_method = 'credit'",
+      [tabId]
+    );
+    if (!tabRes.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Credit bill not found' });
+    }
+
+    const tab = tabRes.rows[0];
+    const { rows } = await client.query(
+      'UPDATE tabs SET payment_method = $1 WHERE id = $2 RETURNING *',
+      [payment_method, tabId]
+    );
+
+    if (tab.customer_id) {
+      await client.query(
+        'UPDATE customers SET visit_count = visit_count + 1, last_visit = NOW() WHERE id = $1',
+        [tab.customer_id]
+      );
+    }
+
+    const itemsRes = await client.query('SELECT * FROM tab_items WHERE tab_id = $1', [tabId]);
+    const gamesRes = await client.query('SELECT * FROM game_sessions WHERE tab_id = $1', [tabId]);
+
+    await client.query('COMMIT');
+    res.json({ ...rows[0], items: itemsRes.rows, game_sessions: gamesRes.rows });
   } catch (err) {
     await client.query('ROLLBACK');
     res.status(500).json({ error: err.message });

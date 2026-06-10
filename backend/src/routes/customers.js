@@ -2,6 +2,55 @@ const router = require('express').Router();
 const pool = require('../db/pool');
 const { authenticate } = require('../middleware/auth');
 
+// GET /customers/credit — pending credit bills grouped by customer
+router.get('/credit', authenticate, async (req, res) => {
+  try {
+    const { rows: bills } = await pool.query(
+      `SELECT t.id, t.customer_id, t.customer_name, t.customer_phone,
+              t.subtotal, t.closed_at, t.notes
+       FROM tabs t
+       WHERE t.status = 'closed' AND t.payment_method = 'credit'
+       ORDER BY t.closed_at DESC`
+    );
+
+    const totalPending = bills.reduce((s, b) => s + parseFloat(b.subtotal), 0);
+    const grouped = new Map();
+
+    for (const bill of bills) {
+      const key = bill.customer_id
+        ? `id:${bill.customer_id}`
+        : `name:${bill.customer_name.toLowerCase()}`;
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          customer_id: bill.customer_id,
+          customer_name: bill.customer_name,
+          customer_phone: bill.customer_phone,
+          credit_total: 0,
+          bills: [],
+        });
+      }
+      const entry = grouped.get(key);
+      entry.credit_total += parseFloat(bill.subtotal);
+      entry.bills.push({
+        id: bill.id,
+        subtotal: parseFloat(bill.subtotal),
+        closed_at: bill.closed_at,
+        notes: bill.notes,
+      });
+    }
+
+    res.json({
+      total_pending: totalPending,
+      bill_count: bills.length,
+      customers: Array.from(grouped.values()).sort(
+        (a, b) => b.credit_total - a.credit_total
+      ),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /customers?q=rahul  — search / autocomplete
 router.get('/', authenticate, async (req, res) => {
   const { q } = req.query;

@@ -12,7 +12,7 @@ function parseDateRange(query) {
 }
 
 function tabFilters(range, paymentMethod) {
-  const conditions = ["t.status = 'closed'", 'DATE(t.closed_at) BETWEEN $1 AND $2'];
+  const conditions = ["t.status = 'closed'", "t.payment_method != 'credit'", 'DATE(t.closed_at) BETWEEN $1 AND $2'];
   const params = [range.from, range.to];
   let idx = 3;
   if (paymentMethod && paymentMethod !== 'all') {
@@ -187,7 +187,8 @@ router.get('/eod', authenticate, async (req, res) => {
        WHERE status = 'open' AND opened_at < NOW() - INTERVAL '3 hours'`
     );
     const settledRes = await pool.query(
-      `SELECT COUNT(*) AS settled_today, COALESCE(SUM(subtotal), 0) AS revenue_today
+      `SELECT COUNT(*) AS settled_today,
+              COALESCE(SUM(CASE WHEN payment_method != 'credit' THEN subtotal ELSE 0 END), 0) AS revenue_today
        FROM tabs WHERE status = 'closed' AND DATE(closed_at) = $1`,
       [date]
     );

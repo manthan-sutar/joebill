@@ -33,6 +33,7 @@ class BillTab {
   });
 
   bool get isOpen => status == 'open';
+  bool get isOnCredit => paymentMethod == 'credit';
 
   double get runningGamesCost {
     final now = DateTime.now();
